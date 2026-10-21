@@ -1,0 +1,198 @@
+/**
+ * Module 3 : Design, les écrans.
+ *
+ * Avant de brancher quoi que ce soit, vous construisez les cinq écrans qui
+ * portent le produit, directement dans l'application, avec les composants du
+ * kit et des boutiques fictives. Ce ne sont pas des maquettes à jeter : ce sont
+ * vos vraies pages. Chaque module suivant en branche une sur les vraies données.
+ *
+ * Cette suite vérifie que les écrans existent, qu'ils sont reliés au routeur,
+ * et que le front se construit. Elle ne juge pas leur qualité visuelle : c'est
+ * le rôle de la relecture par un mentor.
+ *
+ * Contrat attendu, exporté par `src/academie/module-3.ts` :
+ *
+ *   export const ecrans = {
+ *     vitrine: string,     // la vitrine d'une boutique : la recherche, les collections, les produits
+ *     produit: string,     // la fiche d'un produit : ses photos, le choix de la variante, son prix
+ *     panier: string,      // le panier, la zone de livraison et la validation de la commande
+ *     gestion: string,     // l'espace du marchand : ses produits, leurs variantes, ses commandes
+ *     connexion: string,   // la connexion et l'inscription
+ *   }
+ *
+ * Chaque valeur est le chemin d'un fichier `.tsx` sous `web/src`, par exemple
+ * 'web/src/pages/vitrine.tsx'. Chaque écran exporte un composant, emploie au
+ * moins un composant de `@/components/ui`, et un autre fichier de `web/src`
+ * l'importe : c'est ce qui le relie à une route.
+ *
+ * La fiche d'un produit fait choisir la variante dans une liste ou par des
+ * boutons à cocher : la taille, la couleur. Le panier se valide par un
+ * formulaire, où la zone de livraison se choisit dans une liste. L'espace du
+ * marchand ajoute un produit par un formulaire, avec un prix et un stock dans
+ * des champs numériques. L'inscription propose un numéro de téléphone, dans un
+ * champ de type tel : le serveur le mettra sous une seule forme au module 5.
+ */
+import { spawnSync } from 'node:child_process'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { dirname, extname, join, relative, resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { ecrans } from '../../../src/academie/module-3'
+
+const ECRANS = ['vitrine', 'produit', 'panier', 'gestion', 'connexion'] as const
+const WEB = resolve(process.cwd(), 'web')
+const WEB_SRC = join(WEB, 'src')
+
+function path(ecran: (typeof ECRANS)[number]) {
+  return resolve(process.cwd(), ecrans[ecran])
+}
+
+function source(ecran: (typeof ECRANS)[number]) {
+  return existsSync(path(ecran)) ? readFileSync(path(ecran), 'utf8') : ''
+}
+
+function withoutExtension(file: string) {
+  return file.slice(0, file.length - extname(file).length)
+}
+
+function sourceFiles(directory: string): string[] {
+  if (!existsSync(directory)) return []
+  return readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.(tsx?|jsx?)$/.test(entry.name))
+    .map((entry) => join(entry.parentPath, entry.name))
+}
+
+/** Les modules qu'un fichier importe, résolus en chemins sans extension. */
+function importsOf(file: string) {
+  const text = readFileSync(file, 'utf8')
+  const specifiers = [...text.matchAll(/(?:from\s+|import\s*\(\s*)['"]([^'"]+)['"]/g)].map(
+    (match) => match[1] ?? '',
+  )
+  return specifiers
+    .filter((specifier) => specifier.startsWith('.') || specifier.startsWith('@/'))
+    .map((specifier) =>
+      withoutExtension(
+        specifier.startsWith('@/')
+          ? join(WEB_SRC, specifier.slice(2))
+          : resolve(dirname(file), specifier),
+      ),
+    )
+}
+
+/** Le texte écrit en toutes lettres entre deux balises. */
+function literalText(tsx: string) {
+  return [...tsx.matchAll(/>([^<>{}]+)</g)]
+    .map((match) => match[1] ?? '')
+    .join(' ')
+    .replace(/[^\p{L}]/gu, '')
+}
+
+describe('les cinq écrans', () => {
+  it('sont déclarés, chacun dans son propre fichier', () => {
+    expect(ecrans, 'exportez un objet nommé ecrans').toBeTypeOf('object')
+    for (const ecran of ECRANS) {
+      expect(ecrans[ecran], `indiquez le fichier de l’écran ${ecran}`).toBeTypeOf('string')
+    }
+    expect(new Set(ECRANS.map(path)).size, 'un écran par fichier').toBe(ECRANS.length)
+  })
+
+  for (const ecran of ECRANS) {
+    it(`contient l’écran ${ecran}, en .tsx, sous web/src`, () => {
+      const inside = relative(WEB_SRC, path(ecran))
+      expect(!inside.startsWith('..'), 'les écrans vivent dans web/src').toBe(true)
+      expect(path(ecran), 'un écran React est un fichier .tsx').toMatch(/\.tsx$/)
+      expect(existsSync(path(ecran)), `aucun fichier à ${ecrans[ecran]}`).toBe(true)
+    })
+  }
+})
+
+describe('leur construction', () => {
+  it('exportent chacun un composant', () => {
+    for (const ecran of ECRANS) {
+      expect(
+        source(ecran),
+        `l’écran ${ecran} doit exporter un composant, dont le nom commence par une majuscule`,
+      ).toMatch(/export\s+(?:default\s+)?(?:function|const)\s+[A-Z]|export\s+default\s+[A-Z]/)
+    }
+  })
+
+  it('emploient les composants du kit', () => {
+    for (const ecran of ECRANS) {
+      expect(
+        source(ecran),
+        `l’écran ${ecran} doit employer au moins un composant de @/components/ui`,
+      ).toMatch(/['"](?:@\/|\.{1,2}\/(?:\.\.\/)*)components\/ui\//)
+    }
+  })
+
+  it('montrent du texte, pas seulement des cadres vides', () => {
+    for (const ecran of ECRANS) {
+      expect(
+        literalText(source(ecran)).length,
+        `l’écran ${ecran} doit dire à l’utilisateur où il se trouve`,
+      ).toBeGreaterThanOrEqual(12)
+    }
+  })
+
+  it('proposent un formulaire et un mot de passe sur l’écran de connexion', () => {
+    const tsx = source('connexion')
+    expect(tsx, 'la connexion demande un formulaire').toMatch(/<form[\s>]/)
+    expect(tsx, 'avec un champ de mot de passe').toMatch(/type=["'{]+password/)
+  })
+
+  it('proposent un numéro de téléphone à l’inscription', () => {
+    expect(
+      source('connexion'),
+      'l’inscription propose un numéro de téléphone, dans un champ type="tel"',
+    ).toMatch(/type=["'{]+tel["'}]/)
+  })
+
+  it('font choisir la variante d’un produit dans une liste ou par des boutons à cocher', () => {
+    expect(
+      source('produit'),
+      'la taille ou la couleur se choisit dans une liste ou des boutons à cocher : <select>, NativeSelect, Select, RadioGroup, ToggleGroup ou type="radio"',
+    ).toMatch(/<(?:select|NativeSelect|Select|RadioGroup|ToggleGroup)[\s>]|type=["'{]+radio["'}]/)
+  })
+
+  it('proposent un formulaire de commande, avec la zone de livraison dans une liste', () => {
+    const tsx = source('panier')
+    expect(tsx, 'le panier se valide par un formulaire').toMatch(/<form[\s>]/)
+    expect(
+      tsx,
+      'la zone de livraison se choisit dans une liste : <select>, NativeSelect ou Select',
+    ).toMatch(/<(?:select|NativeSelect|Select)[\s>]/)
+  })
+
+  it('proposent au marchand un formulaire de produit, avec un prix et un stock numériques', () => {
+    const tsx = source('gestion')
+    expect(tsx, 'l’ajout d’un produit passe par un formulaire').toMatch(/<form[\s>]/)
+    const numeric = tsx.match(/type=["'{]+number["'}]|inputMode=["'{]+numeric["'}]/g) ?? []
+    expect(
+      numeric.length,
+      'le prix et le stock se saisissent dans des champs numériques : type="number" ou inputMode="numeric"',
+    ).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('leur place dans l’application', () => {
+  // Un écran qu'aucun fichier n'importe n'a pas de route : personne ne le verra.
+  it('sont reliés au routeur', () => {
+    const screens = new Map(ECRANS.map((ecran) => [withoutExtension(path(ecran)), ecran]))
+    const reached = new Set<string>()
+    for (const file of sourceFiles(WEB_SRC)) {
+      for (const target of importsOf(file)) {
+        const ecran = screens.get(target)
+        if (ecran && withoutExtension(file) !== target) reached.add(ecran)
+      }
+    }
+    for (const ecran of ECRANS) {
+      expect(reached.has(ecran), `aucun fichier n’importe l’écran ${ecran}`).toBe(true)
+    }
+  })
+
+  // Le front se construit comme au déploiement : types vérifiés, imports résolus.
+  it('se construisent sans erreur', { timeout: 180_000 }, () => {
+    // Une seule chaîne de commande : Windows n'avertit pas, et npm est trouvé partout.
+    const result = spawnSync('npm run build', { cwd: WEB, encoding: 'utf8', shell: true })
+    expect(result.status, `${result.stdout ?? ''}\n${result.stderr ?? ''}`.slice(-3000)).toBe(0)
+  })
+})
